@@ -1,0 +1,59 @@
+{% extends "admin/base.html" %}
+{% block title %}解析设置 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>解析设置</h1>
+  <p class="page-sub">存在数据库里，改一次长期生效，对之后的导入与重新分章都起作用。</p>
+</div>
+
+<form class="card form" method="post" action="/admin/settings">
+  <div class="field">
+    <label for="target_chars">默认分节字数</label>
+    <input id="target_chars" name="target_chars" type="number" min="500" max="50000" step="100"
+           value="{{ settings.target_chars }}">
+    <p class="field-hint">
+      只影响无标记长文的 auto 分节。每节都在段落边界结束，所以实际字数会略高于这个目标。
+      单个段落超过目标 1.5 倍时会在段内句末标点二次切分。
+    </p>
+  </div>
+
+  <div class="field">
+    <label class="check">
+      <input type="checkbox" name="strip_header_block" value="1"
+             {% if settings.strip_header_block == '1' %}checked{% endif %}>
+      剥离开头的 <code>######</code> 标题块
+    </label>
+    <p class="field-hint">
+      默认关闭。关闭时正文第一段会是那行 <code>#  书名</code>，阅读页会比较难看；
+      120 个样本文件全都有这个块，建议打开后对全部书籍批量重新分章一次。
+      无论开关如何，书名抽取都照常执行。
+    </p>
+  </div>
+
+  <div class="field">
+    <label class="check">
+      <input type="checkbox" name="fix_yao_variant" value="1"
+             {% if settings.fix_yao_variant == '1' %}checked{% endif %}>
+      把"幺"改回"么"
+    </label>
+    <p class="field-hint">默认关闭。实测 118/120 个样本文件受影响，打开后正文读起来更顺。</p>
+  </div>
+
+  <div class="field">
+    <label class="check">
+      <input type="checkbox" name="add_subtitle" value="1"
+             {% if settings.add_subtitle == '1' %}checked{% endif %}>
+      分节章名附带副标题
+    </label>
+    <p class="field-hint">
+      形如 <code>第 3 节 · 清早，路至诚打了个哈欠</code>，取该节首段的第一个短句，纯装饰。
+    </p>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">保存设置</button>
+    <a class="btn btn-ghost" href="/admin/books">去批量重新分章</a>
+  </div>
+</form>
+{% endblock %}

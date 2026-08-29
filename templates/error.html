@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ status }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<section class="empty">
+  <h1 class="error-code">{{ status }}</h1>
+  <h2>{{ detail }}</h2>
+  <p><a href="/">回首页</a> · <a href="/books">去书架</a></p>
+</section>
+{% endblock %}

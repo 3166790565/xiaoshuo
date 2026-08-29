@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_macros.html" import book_card, pager %}
+{% block title %}{% if q %}搜索“{{ q }}” · {% endif %}{{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>搜索</h1>
+  <p class="page-sub">书名模式匹配书名与作者；全文模式检索所有章节正文。</p>
+</div>
+
+<form class="search-form" action="/search" method="get" role="search">
+  <label class="visually-hidden" for="search-q">搜索关键词</label>
+  <input id="search-q" type="search" name="q" value="{{ q }}" placeholder="输入关键词" autofocus>
+  <div class="seg" role="group" aria-label="搜索模式">
+    <label class="seg-item {% if mode == 'title' %}is-on{% endif %}">
+      <input type="radio" name="mode" value="title" {% if mode == 'title' %}checked{% endif %}> 书名
+    </label>
+    <label class="seg-item {% if mode == 'full' %}is-on{% endif %}">
+      <input type="radio" name="mode" value="full" {% if mode == 'full' %}checked{% endif %}> 全文
+    </label>
+  </div>
+  <button class="btn btn-primary" type="submit">搜索</button>
+</form>
+
+{% if q %}
+  <p class="result-count">
+    {% if mode == 'full' %}命中 {{ total }} 个章节{% else %}找到 {{ total }} 本书{% endif %}
+    {% if mode == 'full' and q|length < fts_min %}
+      <span class="hint">（关键词短于 {{ fts_min }} 字，已退回逐字匹配，速度较慢）</span>
+    {% endif %}
+  </p>
+
+  {% if mode == 'full' %}
+    {% if hits %}
+    <ul class="hit-list">
+      {% for hit in hits %}
+      <li class="hit">
+        <h3 class="hit-title">
+          <a href="/book/{{ hit.book_id }}/read/{{ hit.idx }}">{{ hit.chapter_title }}</a>
+        </h3>
+        <p class="hit-book">
+          <a href="/book/{{ hit.book_id }}">{{ hit.book_title }}</a>
+          <span class="dot">·</span>{{ hit.author }}
+        </p>
+        <p class="hit-frag">{{ hit.frag|safe }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+    {{ pager(page, '/search', '&mode=full&q=' ~ q) }}
+    {% else %}
+    <section class="empty"><h2>没有命中</h2><p>换个词组试试，全文检索按连续字串匹配。</p></section>
+    {% endif %}
+  {% else %}
+    {% if books %}
+    <div class="book-grid">{% for book in books %}{{ book_card(book) }}{% endfor %}</div>
+    {{ pager(page, '/search', '&mode=title&q=' ~ q) }}
+    {% else %}
+    <section class="empty"><h2>没有同名的书</h2><p>试试<a href="/search?mode=full&q={{ q }}">全文检索“{{ q }}”</a>。</p></section>
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}

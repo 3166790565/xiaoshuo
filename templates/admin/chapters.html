@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% from "_macros.html" import pager %}
+{% block title %}《{{ book.title }}》章节 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>《{{ book.title }}》章节</h1>
+  <p class="page-sub">
+    {{ book.split_mode|mode_label }} · {{ page.total }} 章 · {{ book.word_count|word_count }}
+  </p>
+</div>
+
+<p class="form-actions">
+  <a class="btn btn-ghost" href="/book/{{ book.id }}">前台看这本</a>
+  <a class="btn btn-ghost" href="/admin/books/{{ book.id }}/edit">编辑信息 / 重新分章</a>
+  <a class="btn btn-ghost" href="/admin/books">返回列表</a>
+</p>
+
+{% if chapters %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>序号</th><th>章名</th><th>字数</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for chapter in chapters %}
+      <tr>
+        <td>{{ chapter.idx }}</td>
+        <td>{{ chapter.title }}</td>
+        <td class="nowrap">{{ chapter.word_count }}</td>
+        <td class="nowrap">
+          <a href="/book/{{ book.id }}/read/{{ chapter.idx }}">阅读</a>
+          <a href="/admin/chapters/{{ chapter.id }}/edit">编辑</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ pager(page, '/admin/books/' ~ book.id ~ '/chapters') }}
+{% else %}
+<section class="empty"><h2>这本书没有章节</h2><p>可以试试重新分章。</p></section>
+{% endif %}
+{% endblock %}

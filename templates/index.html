@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_macros.html" import book_card %}
+{% block title %}{{ site_name }} · {{ site_tagline }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1 class="hero-title">{{ site_name }}</h1>
+  <p class="hero-sub">{{ site_tagline }}</p>
+  <p class="hero-stats">
+    <span><b>{{ stats.books }}</b> 本</span>
+    <span><b>{{ stats.chapters }}</b> 章</span>
+    <span><b>{{ stats.words|word_count }}</b></span>
+  </p>
+  <form class="hero-search" action="/search" method="get" role="search">
+    <label class="visually-hidden" for="hero-q">搜索书名或作者</label>
+    <input id="hero-q" type="search" name="q" placeholder="想读点什么？">
+    <button type="submit">开始找书</button>
+  </form>
+</section>
+
+{% if recent %}
+<section class="section">
+  <div class="section-head">
+    <h2>最近更新</h2>
+    <a class="more" href="/books">全部书架 →</a>
+  </div>
+  <div class="book-grid">
+    {% for book in recent %}{{ book_card(book) }}{% endfor %}
+  </div>
+</section>
+
+{% if longest %}
+<section class="section">
+  <div class="section-head">
+    <h2>篇幅最长</h2>
+    <a class="more" href="/books?order=words">按字数排 →</a>
+  </div>
+  <ul class="rank-list">
+    {% for book in longest %}
+    <li>
+      <span class="rank-no">{{ loop.index }}</span>
+      <a href="/book/{{ book.id }}">{{ book.title }}</a>
+      <span class="rank-meta">{{ book.author }} · {{ book.word_count|word_count }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% else %}
+<section class="empty">
+  <h2>书架还是空的</h2>
+  <p>去<a href="/admin/upload">后台上传页</a>丢几个 txt 进来，支持一次多选和 ZIP 包。</p>
+</section>
+{% endif %}
+{% endblock %}

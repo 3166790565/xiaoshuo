@@ -1,0 +1,62 @@
+{% extends "admin/base.html" %}
+{% block title %}概览 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>概览</h1>
+  <p class="page-sub">分章模式一栏能快速看出哪些书需要重新分章。</p>
+</div>
+
+<div class="stat-row">
+  <div class="stat"><b>{{ stats.books }}</b><span>本书</span></div>
+  <div class="stat"><b>{{ stats.chapters }}</b><span>章节</span></div>
+  <div class="stat"><b>{{ stats.words|word_count }}</b><span>总字数</span></div>
+</div>
+
+<section class="section">
+  <div class="section-head"><h2>分章模式分布</h2><a class="more" href="/admin/books">去筛选 →</a></div>
+  <ul class="mode-list">
+    {% for mode, count in mode_counts.items() %}
+    <li>
+      <a href="/admin/books?split_mode={{ mode }}">
+        <span class="tag tag-{{ mode }}">{{ mode|mode_label }}</span>
+        <b>{{ count }}</b> 本
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>当前解析设置</h2><a class="more" href="/admin/settings">修改 →</a></div>
+  <dl class="kv">
+    <dt>默认分节字数</dt><dd>{{ settings.target_chars }} 字</dd>
+    <dt>剥离开头 ###### 标题块</dt><dd>{{ '开' if settings.strip_header_block == '1' else '关' }}</dd>
+    <dt>把"幺"改回"么"</dt><dd>{{ '开' if settings.fix_yao_variant == '1' else '关' }}</dd>
+    <dt>分节副标题</dt><dd>{{ '开' if settings.add_subtitle == '1' else '关' }}</dd>
+  </dl>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>最近任务</h2><a class="more" href="/admin/upload">去上传 →</a></div>
+  {% if jobs %}
+  <table class="table">
+    <thead><tr><th>任务</th><th>状态</th><th>进度</th><th>成功</th><th>失败</th><th>时间</th></tr></thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td><a href="/admin/jobs/{{ job.id }}"><code>{{ job.id[:8] }}</code></a></td>
+        <td><span class="tag tag-plain">{{ job.status }}</span></td>
+        <td>{{ job.done }} / {{ job.total }}</td>
+        <td>{{ job.ok }}</td>
+        <td>{{ job.failed }}</td>
+        <td class="nowrap">{{ job.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="page-sub">还没有导入任务。</p>
+  {% endif %}
+</section>
+{% endblock %}

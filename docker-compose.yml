@@ -1,0 +1,48 @@
+name: novel
+
+services:
+  web:
+    build: .
+    image: novel-site:latest
+    container_name: novel-site
+    restart: unless-stopped
+
+    # 站点配置（ADMIN_PASSWORD / SECRET_KEY / SITE_BASE_URL 等）从 .env 注入。
+    # compose 的 env_file 解析比 app/config.py 严格：别写 `export ` 前缀，值也别加引号。
+    env_file:
+      - .env
+
+    # 这两项由 compose 说最终话，压掉 .env 里可能残留的开发机相对路径。
+    # 容器内数据目录恒为 /data，可换的只有库文件名 —— 在 .env 里改 DB_FILE。
+    environment:
+      NOVEL_DATA_DIR: /data
+      NOVEL_DB_PATH: /data/${DB_FILE:-novel.db}
+
+    # 默认只绑宿主机 127.0.0.1，前面套 nginx 做 HTTPS。
+    # 想直接暴露到公网：在 .env 里写 BIND_ADDR=0.0.0.0（先读 README 里的风险说明）
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-8000}:8000"
+
+    volumes:
+      # 唯一的持久化目录：novel.db、WAL、批量导入日志都在这儿
+      - ./data:/data
+      # 要用 scripts/bulk_import.py 灌本地 txt，把目录挂进来（只读）
+      # - /srv/txt:/txt:ro
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=5)
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+    # 日志滚动，别让导入几万本书的进度日志把磁盘填满
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

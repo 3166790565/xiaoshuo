@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+{% block title %}上传导入 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>上传导入</h1>
+  <p class="page-sub">一次可多选 txt，也可以直接丢 ZIP 包（只取包内 .txt）。</p>
+</div>
+
+<form id="upload-form" class="card form" enctype="multipart/form-data">
+  <div id="dropzone" class="dropzone" tabindex="0" role="button"
+       aria-label="点击选择文件，或把文件拖到这里">
+    <p class="dropzone-main">把 txt 或 zip 拖到这里</p>
+    <p class="dropzone-sub">也可以点击选择 · 支持一次多选</p>
+    <input id="file-input" type="file" name="files" multiple accept=".txt,.zip" class="visually-hidden">
+  </div>
+  <ul id="file-list" class="file-list"></ul>
+
+  <fieldset class="options">
+    <legend>本次导入选项</legend>
+    <div class="field">
+      <label for="target_chars">分节字数</label>
+      <input id="target_chars" name="target_chars" type="number" min="500" max="50000" step="100"
+             value="{{ settings.target_chars }}">
+      <p class="field-hint">只影响无标记长文的 auto 分节。留着默认值就好。</p>
+    </div>
+    <div class="field">
+      <span class="label-like">分章模式</span>
+      <label class="radio"><input type="radio" name="force_mode" value="" checked> 自动判定（推荐）</label>
+      <label class="radio"><input type="radio" name="force_mode" value="single"> 强制整本单章</label>
+      <label class="radio"><input type="radio" name="force_mode" value="auto"> 强制按字数切</label>
+    </div>
+  </fieldset>
+
+  <div class="form-actions">
+    <button id="upload-btn" class="btn btn-primary" type="submit" disabled>开始导入</button>
+    <span id="upload-note" class="field-hint"></span>
+  </div>
+</form>
+
+<section id="progress-card" class="card is-hidden" aria-live="polite">
+  <div class="section-head">
+    <h2>导入进度</h2>
+    <span id="progress-status" class="tag tag-plain">准备中</span>
+  </div>
+  <div class="progress"><div id="progress-bar" class="progress-bar" style="width:0%"></div></div>
+  <p id="progress-text" class="page-sub">0 / 0</p>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>文件</th><th>结果</th><th>书名</th><th>分章</th><th>章数</th><th>字数</th><th>备注</th></tr></thead>
+      <tbody id="progress-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+{% if jobs %}
+<section class="section">
+  <div class="section-head"><h2>最近任务</h2></div>
+  <ul class="job-list">
+    {% for job in jobs %}
+    <li>
+      <a href="/admin/jobs/{{ job.id }}"><code>{{ job.id[:8] }}</code></a>
+      <span class="tag tag-plain">{{ job.status }}</span>
+      <span>{{ job.done }}/{{ job.total }} · 成功 {{ job.ok }} · 失败 {{ job.failed }}</span>
+      <span class="page-sub">{{ job.created_at }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>window.RESUME_JOB = {{ (resume_job or '')|tojson }};</script>
+<script src="/static/js/admin.js" defer></script>
+{% endblock %}

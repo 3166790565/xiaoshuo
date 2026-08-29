@@ -1,0 +1,29 @@
+{% extends "admin/base.html" %}
+{% block title %}编辑章节 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>编辑章节</h1>
+  <p class="page-sub">
+    <a href="/admin/books/{{ book.id }}/chapters">《{{ book.title }}》</a>
+    · 第 {{ chapter.idx }} 章 · {{ chapter.word_count }} 字
+  </p>
+</div>
+
+<form class="card form" method="post" action="/admin/chapters/{{ chapter.id }}/edit">
+  <div class="field">
+    <label for="title">章名</label>
+    <input id="title" name="title" value="{{ chapter.title }}" maxlength="120">
+  </div>
+  <div class="field">
+    <label for="content">正文</label>
+    <textarea id="content" name="content" rows="26" class="mono" required>{{ chapter.content }}</textarea>
+    <p class="field-hint">一行一段，保存时会去掉空行与行首空白；首行缩进由前台 CSS 负责。</p>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">保存</button>
+    <a class="btn btn-ghost" href="/book/{{ book.id }}/read/{{ chapter.idx }}">前台看这一章</a>
+    <a class="btn btn-ghost" href="/admin/books/{{ book.id }}/chapters">返回章节列表</a>
+  </div>
+</form>
+{% endblock %}

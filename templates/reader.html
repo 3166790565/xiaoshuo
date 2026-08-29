@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ chapter.title }} · {{ book.title }}{% endblock %}
+{% block body_class %}reader-page{% endblock %}
+
+{% block content %}
+<div class="reader" data-book-id="{{ book.id }}" data-idx="{{ chapter.idx }}"
+     data-book-title="{{ book.title }}" data-chapter-title="{{ chapter.title }}">
+
+  <nav class="reader-bar" aria-label="阅读工具">
+    <div class="reader-bar-left">
+      <a class="chip" href="/book/{{ book.id }}">{{ book.title }}</a>
+      {% if not single %}<a class="chip" href="/book/{{ book.id }}#catalog">目录</a>{% endif %}
+    </div>
+    <div class="reader-bar-right">
+      <div class="chip-group" role="group" aria-label="字号">
+        <button type="button" class="chip" data-font="-" aria-label="缩小字号">A−</button>
+        <button type="button" class="chip" data-font="+" aria-label="放大字号">A+</button>
+      </div>
+      <div class="chip-group" role="group" aria-label="行距">
+        <button type="button" class="chip" data-lead="-" aria-label="收紧行距">⇕−</button>
+        <button type="button" class="chip" data-lead="+" aria-label="放宽行距">⇕+</button>
+      </div>
+      <div class="chip-group" role="group" aria-label="主题">
+        <button type="button" class="chip" data-theme="paper">纸黄</button>
+        <button type="button" class="chip" data-theme="white">纯白</button>
+        <button type="button" class="chip" data-theme="night">夜间</button>
+      </div>
+    </div>
+  </nav>
+
+  <article class="chapter">
+    <h1 class="chapter-title">{{ chapter.title }}</h1>
+    <p class="chapter-meta">{{ book.author }} · {{ chapter.word_count }} 字{% if not single %} · 第 {{ chapter.idx }} / {{ book.chapter_count }} 章{% endif %}</p>
+    <div class="chapter-body">
+      {% for paragraph in paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+    </div>
+  </article>
+
+  {% if not single %}
+  <nav class="reader-nav" aria-label="翻章">
+    {% if prev %}
+      <a class="btn btn-ghost" href="/book/{{ book.id }}/read/{{ prev.idx }}" rel="prev" data-prev>上一章</a>
+    {% else %}
+      <span class="btn is-off">已是第一章</span>
+    {% endif %}
+    <a class="btn btn-ghost" href="/book/{{ book.id }}#catalog">目录</a>
+    {% if next %}
+      <a class="btn btn-primary" href="/book/{{ book.id }}/read/{{ next.idx }}" rel="next" data-next>下一章</a>
+    {% else %}
+      <span class="btn is-off">已是最后一章</span>
+    {% endif %}
+  </nav>
+  {% else %}
+  <nav class="reader-nav" aria-label="返回">
+    <a class="btn btn-ghost" href="/book/{{ book.id }}">返回书籍页</a>
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/reader.js" defer></script>
+{% endblock %}

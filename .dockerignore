@@ -1,0 +1,24 @@
+# 构建上下文只需要代码与模板，13 GB 的库和虚拟环境一律别进去
+.git/
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 数据全靠挂载，不进镜像
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# 密钥不进镜像层，运行时用 env_file 注入
+.env
+
+# 文档与本地产物
+README.md
+CLAUDE.md
+Dockerfile
+docker-compose.yml
+.dockerignore

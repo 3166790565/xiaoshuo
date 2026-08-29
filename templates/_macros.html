@@ -1,0 +1,56 @@
+{% macro book_card(book) %}
+<article class="book-card">
+  <a class="book-cover" href="/book/{{ book.id }}" aria-hidden="true" tabindex="-1"
+     {% if book.cover_url %}style="background-image:url('{{ book.cover_url }}');background-size:cover;background-position:center"
+     {% else %}style="background:{{ book.title|cover_gradient }}"{% endif %}>
+    {% if not book.cover_url %}<span class="cover-initial">{{ book.title|cover_initial }}</span>{% endif %}
+  </a>
+  <h3 class="book-title"><a href="/book/{{ book.id }}">{{ book.title }}</a></h3>
+  <p class="book-meta">
+    <span class="book-author">{{ book.author }}</span>
+    <span class="dot">·</span>
+    <span>{{ book.word_count|word_count }}</span>
+  </p>
+  <p class="book-meta-2">
+    <span class="tag tag-{{ book.split_mode }}">{{ book.split_mode|mode_label }}</span>
+    {% if book.chapter_count > 1 %}<span>{{ book.chapter_count }} 章</span>{% else %}<span>单章</span>{% endif %}
+  </p>
+</article>
+{% endmacro %}
+
+
+{% macro pager(page, base, extra='') %}
+{% if page.pages > 1 %}
+<nav class="pager" aria-label="分页">
+  {% if page.has_prev %}
+    <a class="pager-step" href="{{ base }}?page={{ page.prev }}{{ extra }}" rel="prev">上一页</a>
+  {% else %}
+    <span class="pager-step is-off">上一页</span>
+  {% endif %}
+
+  {% if page.window()[0] > 1 %}
+    <a href="{{ base }}?page=1{{ extra }}">1</a>
+    {% if page.window()[0] > 2 %}<span class="pager-gap">…</span>{% endif %}
+  {% endif %}
+
+  {% for number in page.window() %}
+    {% if number == page.number %}
+      <span class="pager-now" aria-current="page">{{ number }}</span>
+    {% else %}
+      <a href="{{ base }}?page={{ number }}{{ extra }}">{{ number }}</a>
+    {% endif %}
+  {% endfor %}
+
+  {% if page.window()[-1] < page.pages %}
+    {% if page.window()[-1] < page.pages - 1 %}<span class="pager-gap">…</span>{% endif %}
+    <a href="{{ base }}?page={{ page.pages }}{{ extra }}">{{ page.pages }}</a>
+  {% endif %}
+
+  {% if page.has_next %}
+    <a class="pager-step" href="{{ base }}?page={{ page.next }}{{ extra }}" rel="next">下一页</a>
+  {% else %}
+    <span class="pager-step is-off">下一页</span>
+  {% endif %}
+</nav>
+{% endif %}
+{% endmacro %}

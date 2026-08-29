@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}后台 · {{ site_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="admin-page">
+<a class="skip-link" href="#main">跳到正文</a>
+
+<header class="admin-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="/admin"><span class="brand-name">{{ site_name }}</span><span class="brand-tag">管理后台</span></a>
+    <nav class="head-nav" aria-label="后台导航">
+      <a href="/admin" {% if active == 'home' %}class="is-on"{% endif %}>概览</a>
+      <a href="/admin/upload" {% if active == 'upload' %}class="is-on"{% endif %}>上传</a>
+      <a href="/admin/books" {% if active == 'books' %}class="is-on"{% endif %}>书籍</a>
+      <a href="/admin/settings" {% if active == 'settings' %}class="is-on"{% endif %}>解析设置</a>
+      <a href="/">看前台</a>
+    </nav>
+    <form action="/admin/logout" method="post" class="logout-form">
+      <button class="chip" type="submit">退出</button>
+    </form>
+  </div>
+</header>
+
+<main id="main" class="wrap site-main">
+  {% if flash %}
+  <p class="flash flash-{{ kind|default('ok') }}" role="status">{{ flash }}</p>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

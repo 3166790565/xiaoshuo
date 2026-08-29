@@ -1,0 +1,56 @@
+{
+  "bookSourceName": "青灯书斋",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://127.0.0.1:8000",
+  "bookSourceGroup": "自建书库",
+  "bookSourceComment": "自建小说站的只读 JSON 接口。\n换地址时把本源里所有 http://127.0.0.1:8000 替换成实际可访问的地址；\n服务端设置了 API_TOKEN 的话，四个 url 都要带同一个 token 参数。",
+  "enabled": true,
+  "enabledExplore": true,
+  "enabledCookieJar": false,
+  "customOrder": 0,
+  "weight": 0,
+  "respondTime": 180000,
+  "lastUpdateTime": 0,
+  "searchUrl": "http://127.0.0.1:8000/api/search?key={{key}}&page={{page}}",
+  "exploreUrl": "最近更新::http://127.0.0.1:8000/api/search?key=&page={{page}}",
+  "ruleSearch": {
+    "bookList": "$.data.list[*]",
+    "name": "$.name",
+    "author": "$.author",
+    "intro": "$.intro",
+    "kind": "$.kind",
+    "wordCount": "$.wordCount",
+    "coverUrl": "$.coverUrl",
+    "bookUrl": "$.bookUrl"
+  },
+  "ruleExplore": {
+    "bookList": "$.data.list[*]",
+    "name": "$.name",
+    "author": "$.author",
+    "intro": "$.intro",
+    "kind": "$.kind",
+    "wordCount": "$.wordCount",
+    "coverUrl": "$.coverUrl",
+    "bookUrl": "$.bookUrl"
+  },
+  "ruleBookInfo": {
+    "init": "$.data",
+    "name": "$.name",
+    "author": "$.author",
+    "intro": "$.intro",
+    "kind": "$.kind",
+    "wordCount": "$.wordCount",
+    "coverUrl": "$.coverUrl",
+    "lastChapter": "$.latestChapterTitle",
+    "tocUrl": "$.tocUrl"
+  },
+  "ruleToc": {
+    "chapterList": "$.data.list[*]",
+    "chapterName": "$.title",
+    "chapterUrl": "$.url",
+    "nextTocUrl": "$.data.nextUrl"
+  },
+  "ruleContent": {
+    "content": "$.data.content"
+  }
+}

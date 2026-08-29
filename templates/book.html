@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pager %}
+{% block title %}{{ book.title }} · {{ site_name }}{% endblock %}
+{% block description %}{{ book.intro[:80] }}{% endblock %}
+
+{% block content %}
+<article class="book-detail" data-book-id="{{ book.id }}">
+  <div class="detail-cover"
+       {% if book.cover_url %}style="background-image:url('{{ book.cover_url }}');background-size:cover;background-position:center"
+       {% else %}style="background:{{ book.title|cover_gradient }}"{% endif %}>
+    {% if not book.cover_url %}<span class="cover-initial">{{ book.title|cover_initial }}</span>{% endif %}
+  </div>
+
+  <div class="detail-body">
+    <h1 class="detail-title">{{ book.title }}</h1>
+    <p class="detail-meta">
+      <span>{{ book.author }}</span>
+      <span class="dot">·</span>
+      <span>{{ book.word_count|word_count }}</span>
+      <span class="dot">·</span>
+      <span>{% if single %}单章{% else %}{{ book.chapter_count }} 章{% endif %}</span>
+      {% if book.category %}<span class="dot">·</span><span>{{ book.category }}</span>{% endif %}
+    </p>
+    <p class="detail-tags">
+      <span class="tag tag-{{ book.split_mode }}">{{ book.split_mode|mode_label }}</span>
+      <span class="tag tag-plain">入库 {{ book.created_at[:10] if book.created_at else '' }}</span>
+    </p>
+
+    {% if book.intro %}<p class="detail-intro">{{ book.intro }}</p>{% endif %}
+
+    <div class="detail-actions">
+      {% if first_idx is not none %}
+        <a class="btn btn-primary" href="/book/{{ book.id }}/read/{{ first_idx }}">
+          {% if single %}开始阅读{% else %}从头开始{% endif %}
+        </a>
+        <a class="btn btn-ghost is-hidden" href="#" data-resume>继续阅读</a>
+      {% else %}
+        <span class="btn is-off">暂无正文</span>
+      {% endif %}
+    </div>
+  </div>
+</article>
+
+{% if not single %}
+<section class="section">
+  <div class="section-head">
+    <h2 id="catalog">目录</h2>
+    <p class="page-sub">共 {{ book.chapter_count }} 章</p>
+  </div>
+  <ol class="catalog">
+    {% for chapter in chapters %}
+    <li>
+      <a href="/book/{{ book.id }}/read/{{ chapter.idx }}">
+        <span class="catalog-title">{{ chapter.title }}</span>
+        <span class="catalog-words">{{ chapter.word_count }} 字</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+  {{ pager(page, '/book/' ~ book.id) }}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/reader.js" defer></script>
+{% endblock %}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · {{ site_name }} 后台</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="admin-page login-page">
+<main class="login-box">
+  <h1 class="login-title">{{ site_name }}</h1>
+  <p class="login-sub">管理后台</p>
+
+  <form method="post" action="/admin/login" class="login-form">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="password">管理员密码</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+    {% if error %}<p class="field-error" role="alert">{{ error }}</p>{% endif %}
+    <button class="btn btn-primary" type="submit">登录</button>
+  </form>
+
+  <p class="login-hint">
+    密码取 <code>ADMIN_PASSWORD</code>：先看系统环境变量，再看项目根目录的 <code>.env</code>；
+    两处都没有就每次启动随机生成一个，打印在启动日志里。
+  </p>
+  <p class="login-hint"><a href="/">← 回前台</a></p>
+</main>
+</body>
+</html>

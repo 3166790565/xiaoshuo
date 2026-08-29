@@ -1,0 +1,66 @@
+{% extends "admin/base.html" %}
+{% block title %}编辑《{{ book.title }}》 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>编辑《{{ book.title }}》</h1>
+  <p class="page-sub">
+    {{ book.split_mode|mode_label }} · {{ book.chapter_count }} 章 · {{ book.word_count|word_count }}
+    {% if book.source_filename %} · 源文件 {{ book.source_filename }}{% endif %}
+  </p>
+</div>
+
+<form class="card form" method="post" action="/admin/books/{{ book.id }}/edit">
+  <div class="field">
+    <label for="title">书名</label>
+    <input id="title" name="title" value="{{ book.title }}" required maxlength="80">
+  </div>
+  <div class="field">
+    <label for="author">作者</label>
+    <input id="author" name="author" value="{{ book.author }}" maxlength="40">
+  </div>
+  <div class="field">
+    <label for="category">分类</label>
+    <input id="category" name="category" value="{{ book.category }}" maxlength="40" placeholder="随手写，前台会显示">
+  </div>
+  <div class="field">
+    <label for="cover_url">封面地址</label>
+    <input id="cover_url" name="cover_url" value="{{ book.cover_url }}" placeholder="留空则用书名生成渐变占位块">
+  </div>
+  <div class="field">
+    <label for="intro">简介</label>
+    <textarea id="intro" name="intro" rows="4" maxlength="600">{{ book.intro }}</textarea>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">保存</button>
+    <a class="btn btn-ghost" href="/admin/books">返回列表</a>
+    <a class="btn btn-ghost" href="/admin/books/{{ book.id }}/chapters">章节列表</a>
+  </div>
+</form>
+
+<section class="card">
+  <div class="section-head"><h2>重新分章</h2></div>
+  <form class="resplit-controls" method="post" action="/admin/books/{{ book.id }}/resplit">
+    <label for="force_mode">目标模式</label>
+    <select id="force_mode" name="force_mode">
+      <option value="">自动判定</option>
+      <option value="single">强制整本单章</option>
+      <option value="auto">强制按字数切</option>
+    </select>
+    <label for="rs_target">分节字数</label>
+    <input id="rs_target" name="target_chars" type="number" min="500" max="50000" step="100"
+           value="{{ settings.target_chars }}">
+    <button class="btn btn-ghost" type="submit">重新分章</button>
+  </form>
+  <p class="field-hint">会用库里现存正文重跑解析器，书名、作者、简介这些人工改过的字段不受影响。</p>
+</section>
+
+<section class="card danger">
+  <div class="section-head"><h2>删除</h2></div>
+  <form method="post" action="/admin/books/{{ book.id }}/delete"
+        onsubmit="return confirm('删除《{{ book.title }}》及其全部章节？此操作不可撤销。')">
+    <p class="field-hint">连带删除 {{ book.chapter_count }} 个章节与检索索引，不可撤销。</p>
+    <button class="btn btn-danger" type="submit">删除这本书</button>
+  </form>
+</section>
+{% endblock %}

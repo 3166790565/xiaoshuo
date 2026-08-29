@@ -1,0 +1,94 @@
+{% extends "admin/base.html" %}
+{% from "_macros.html" import pager %}
+{% block title %}书籍管理 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>书籍管理</h1>
+  <p class="page-sub">共 {{ page.total }} 本{% if split_mode %}（{{ split_mode|mode_label }}）{% endif %}</p>
+</div>
+
+<form class="filter-bar" method="get" action="/admin/books">
+  <label class="visually-hidden" for="filter-q">书名或作者</label>
+  <input id="filter-q" name="q" type="search" value="{{ q }}" placeholder="书名或作者">
+  <label class="visually-hidden" for="filter-mode">分章模式</label>
+  <select id="filter-mode" name="split_mode">
+    <option value="">全部分章模式</option>
+    {% for mode, label in split_mode_labels.items() %}
+    <option value="{{ mode }}" {% if split_mode == mode %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <label class="visually-hidden" for="filter-order">排序</label>
+  <select id="filter-order" name="order">
+    {% for key, label in [('updated','最近更新'), ('created','最近入库'), ('words','字数'), ('title','书名')] %}
+    <option value="{{ key }}" {% if order == key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-ghost" type="submit">筛选</button>
+</form>
+
+<section class="card resplit-card">
+  <div class="section-head">
+    <h2>重新分章</h2>
+    <span class="page-sub">用库里现存正文重跑解析器，调完规则后批量修复就靠它</span>
+  </div>
+  <div class="resplit-controls">
+    <label for="rs-mode">目标模式</label>
+    <select id="rs-mode">
+      <option value="">自动判定</option>
+      <option value="single">强制整本单章</option>
+      <option value="auto">强制按字数切</option>
+    </select>
+    <label for="rs-target">分节字数</label>
+    <input id="rs-target" type="number" min="500" max="50000" step="100" value="{{ settings.target_chars }}">
+    <button id="rs-selected" class="btn btn-ghost" type="button">重跑选中</button>
+    <button id="rs-filtered" class="btn btn-ghost" type="button">重跑当前筛选全部</button>
+  </div>
+  <div id="rs-progress" class="is-hidden" aria-live="polite">
+    <div class="progress"><div id="rs-bar" class="progress-bar" style="width:0%"></div></div>
+    <p id="rs-text" class="page-sub"></p>
+  </div>
+  <input type="hidden" id="rs-filter-mode" value="{{ split_mode }}">
+  <input type="hidden" id="rs-filter-q" value="{{ q }}">
+</section>
+
+{% if books %}
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="check-all" aria-label="全选本页"></th>
+        <th>书名</th><th>作者</th><th>分章</th><th>章数</th><th>字数</th><th>更新</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for book in books %}
+      <tr>
+        <td><input type="checkbox" class="row-check" value="{{ book.id }}" aria-label="选择 {{ book.title }}"></td>
+        <td><a href="/book/{{ book.id }}">{{ book.title }}</a></td>
+        <td>{{ book.author }}</td>
+        <td><span class="tag tag-{{ book.split_mode }}">{{ book.split_mode|mode_label }}</span></td>
+        <td>{{ book.chapter_count }}</td>
+        <td class="nowrap">{{ book.word_count|word_count }}</td>
+        <td class="nowrap">{{ book.updated_at[:16] if book.updated_at else '' }}</td>
+        <td class="nowrap">
+          <a href="/admin/books/{{ book.id }}/chapters">章节</a>
+          <a href="/admin/books/{{ book.id }}/edit">编辑</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ pager(page, '/admin/books', '&split_mode=' ~ split_mode ~ '&order=' ~ order ~ ('&q=' ~ q if q else '')) }}
+{% else %}
+<section class="empty">
+  <h2>没有匹配的书</h2>
+  <p><a href="/admin/upload">去上传</a>，或者<a href="/admin/books">清掉筛选条件</a>。</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/admin.js" defer></script>
+{% endblock %}

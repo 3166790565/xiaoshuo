@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import book_card, pager %}
+{% block title %}书架 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>书架</h1>
+  <p class="page-sub">共 {{ page.total }} 本{% if q %}，匹配“{{ q }}”{% endif %}</p>
+</div>
+
+<div class="toolbar">
+  <div class="seg" role="group" aria-label="排序方式">
+    {% for key, label in [('updated','最近更新'), ('created','最近入库'), ('words','字数'), ('title','书名')] %}
+      <a class="seg-item {% if order == key %}is-on{% endif %}"
+         href="/books?order={{ key }}{% if q %}&q={{ q }}{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if books %}
+<div class="book-grid">
+  {% for book in books %}{{ book_card(book) }}{% endfor %}
+</div>
+{{ pager(page, '/books', '&order=' ~ order ~ ('&q=' ~ q if q else '')) }}
+{% else %}
+<section class="empty">
+  <h2>没有匹配的书</h2>
+  <p>换个关键词，或者<a href="/books">看看全部</a>。</p>
+</section>
+{% endif %}
+{% endblock %}
