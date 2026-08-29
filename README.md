@@ -194,7 +194,7 @@ app/
     site.py          前台页面
     admin.py         后台页面与操作接口
     api.py           阅读软件用 JSON 接口
-templates/  static/  legado/  tests/  data/（已 gitignore）
+templates/  static/  legado/  data/（已 gitignore）
 Dockerfile  docker-compose.yml  .dockerignore   部署用，见「部署」一节
 ```
 
@@ -304,22 +304,7 @@ Dockerfile  docker-compose.yml  .dockerignore   部署用，见「部署」一�
 > 书源 URL 带同一个 token。上传与后台一律要求管理员会话。
 > 另外这套服务没做限流，别直接暴露在公网上。
 
-## 测试
-
-```bash
-python -m pytest -q
-```
-
-- `tests/test_txt_parser.py`：三种分章模式、短篇单章、6000 字超长单段、编号列表不误判、
-  GBK 与 UTF-8-BOM 解码、`\r\r\n` 换行、广告行与硬换行、两个清理开关、强制模式
-- `tests/test_importer.py`：ZIP 路径穿越与体积防护、跨编码去重、任务进度、重新分章、FTS 高亮与检索注入
-- `tests/test_web.py`：前台页面、后台鉴权与开放重定向、上传到浏览的完整链路、四个书源接口与 token 开关
-- `tests/test_config_env.py`：`.env` 读取的优先级、注释与引号处理、值里的 `#` 不被截断
-
-测试库建在临时目录，且 `conftest.py` 把 `NOVEL_ENV_FILE` 指到一个不存在的路径，
-所以你本机的 `.env` 与 `data/` 下的真实库都不会被测试碰到。
-
-### 实测结果
+## 实测结果
 
 120 个真实 txt 全量导入：120 成功、0 失败，2.6 秒，库 38 MB，953 个章节、321 万字。
 
