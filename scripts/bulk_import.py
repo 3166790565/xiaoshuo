@@ -8,6 +8,14 @@
     python scripts/bulk_import.py "E:/PythonProject/小说爬/小说_90000-"
     python scripts/bulk_import.py <目录> --workers 8 --limit 200
     python scripts/bulk_import.py <目录> --dry-run          # 只解析不写库
+    python scripts/bulk_import.py <目录> --http http://127.0.0.1:8000   # 走站点 HTTP 上传接口
+
+内置 `--http` 时不再走进程池，而是把文件逐个 POST 给站点的上传接口
+（`/admin/upload`，复用同一条导入链路），适合脚本跑在另一台机器/容器里、
+只想把文件推给已运行的站点。示例：需要管理员密码（会话 cookie 保存在
+`<数据目录>/uploader_cookies.txt`，过期会自动重新登录，重跑免重新输入）：
+
+    python scripts/bulk_import.py <目录> --http http://127.0.0.1:8000 --admin-password 你的密码
 
 中断了直接重跑同一条命令：处理过的文件都记在 jsonl 日志里，重跑会跳过。
 Git Bash 里建议先 `export PYTHONIOENCODING=utf-8`，脚本也会自己纠一次 stdout。
@@ -131,6 +139,58 @@ def _iter_txt(root: Path, recursive: bool) -> list[str]:
     return found
 
 
+# --------------------------------------------------------------------- HTTP 模式
+
+def _http_import(
+    base: str,
+    path_str: str,
+    session: requests.Session,
+    force_mode: str,
+    target_chars: int | None,
+) -> dict:
+    """把单个文件 POST 到 /admin/upload，轮询到任务完成，返回一条与离线模式同构的记录。"""
+    file = Path(path_str)
+    rec: dict = {"path": path_str, "file": clean_filename(file.name), "status": "error", "message": ""}
+    try:
+        with file.open("rb") as handle:
+            files = {"files": (file.name, handle, "text/plain")}
+            data = {"force_mode": force_mode}
+            if target_chars:
+                data["target_chars"] = str(target_chars)
+            resp = session.post(f"{base}/admin/upload", data=data, files=files, timeout=600)
+        resp.raise_for_status()
+        payload = resp.json()
+        if not payload.get("ok"):
+            rec["message"] = payload.get("message", "上传失败")
+            return rec
+
+        job_id = payload["job_id"]
+        for _ in range(300):  # 任务完成超时约 5 分钟
+            time.sleep(1)
+            job = session.get(f"{base}/admin/api/jobs/{job_id}", timeout=30).json()
+            if job.get("status") in ("done", "error"):
+                break
+        else:
+            rec["message"] = "任务超时"
+            return rec
+        log = job.get("log", [])
+        result = next((r for r in log if r.get("status") != "error"), log[0]) if log else {}
+        rec.update(
+            status=result.get("status", "error"),
+            title=result.get("title", ""),
+            author=result.get("author", ""),
+            mode=result.get("mode", ""),
+            chapters=result.get("chapters", 0),
+            words=result.get("words", 0),
+            message=result.get("message", job.get("errorMsg", "") or ""),
+        )
+        rec.pop("file", None)  # job 日志里已带 file/title，主循环不重复
+        return rec
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        rec["message"] = f"{type(exc).__name__}: {exc}"
+        return rec
+
+
 def _load_done(log_path: Path, retry_errors: bool) -> set[str]:
     """从 jsonl 日志里恢复"已处理过的文件"，实现断点续跑。"""
     done: set[str] = set()
@@ -209,6 +269,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--no-resume", action="store_true", help="忽略日志，全部重新处理")
     parser.add_argument("--retry-errors", action="store_true", help="续跑时重试上次失败的文件")
     parser.add_argument("--progress-every", type=int, default=100, help="每处理多少个打一行进度")
+    parser.add_argument("--http", type=str, default="", help="HTTP 模式：站点地址，如 http://127.0.0.1:8000")
+    parser.add_argument("--admin-password", type=str, default="", help="HTTP 模式：管理员密码（首次或会话过期时用）")
     return parser.parse_args(argv)
 
 
@@ -226,8 +288,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"目录不存在：{args.directory}")
         return 2
 
-    from app import config, db
+    from app import config
     from app.services import settings as app_settings
+    from app.services.txt_parser import clean_filename
+
+    if args.http:
+        import requests  # 只在 HTTP 模式下才需要
+
+        return _run_http(args, config, app_settings, clean_filename)
+
+    from app import db
 
     config.ensure_dirs()
     db.init_db()
@@ -345,6 +415,113 @@ def main(argv: list[str] | None = None) -> int:
         print("重跑同一条命令即可继续（已处理的会按日志跳过）。")
     db.close_conn()
     return 130 if interrupted else 0
+
+
+def _run_http(args: argparse.Namespace, config, app_settings, clean_filename) -> int:
+    """HTTP 模式主流程：逐个文件 POST 给站点导入接口，不占本地进程池与 sqlite。"""
+    import requests
+
+    base = args.http.rstrip("/")
+    params = {"force_mode": args.force_mode}
+    if args.target_chars:
+        params["target_chars"] = args.target_chars
+
+    # 会话 cookie 与续跑日志都放数据目录，与容器挂载卷行为一致
+    cookies_path = config.DATA_DIR / "uploader_cookies.json"
+    try:
+        session = requests.Session()
+        if cookies_path.is_file():
+            session.cookies.update(json.loads(cookies_path.read_text(encoding="utf-8")))
+        probe = session.get(f"{base}/admin/upload", timeout=30, allow_redirects=False)
+        if probe.status_code == 303 or (probe.status_code >= 400 and not session.cookies):
+            if not args.admin_password:
+                print("会话已失效，请提供 --admin-password 重新登录。")
+                return 2
+            resp = session.post(
+                f"{base}/admin/login",
+                data={"password": args.admin_password, "next": "/admin"},
+                timeout=30,
+                allow_redirects=False,
+            )
+            if resp.status_code not in (302, 303) or not session.cookies:
+                print("登录失败：请检查管理员密码或站点地址。")
+                return 2
+            cookies_path.parent.mkdir(parents=True, exist_ok=True)
+            cookies_path.write_text(json.dumps(dict(session.cookies)), encoding="utf-8")
+
+        paths = _iter_txt(args.directory, args.recursive)
+        print(f"HTTP 模式：{args.http}，扫描到 {len(paths)} 个 txt")
+
+        done_paths = set() if args.no_resume else _load_done(args.log, args.retry_errors)
+        if done_paths:
+            paths = [p for p in paths if p not in done_paths]
+            print(f"续跑      跳过日志里已处理的 {len(done_paths)} 个，剩 {len(paths)} 个")
+        if args.limit > 0:
+            paths = paths[: args.limit]
+            print(f"限量      本轮只处理 {len(paths)} 个")
+        if not paths:
+            print("没有需要处理的文件。")
+            return 0
+
+        args.log.parent.mkdir(parents=True, exist_ok=True)
+        stats = {"ok": 0, "skip": 0, "error": 0}
+        total = len(paths)
+        start = time.monotonic()
+        counter = 0
+        interrupted = False
+
+        def handle(rec: dict) -> None:
+            nonlocal counter
+            counter += 1
+            status = rec.get("status", "error")
+            stats[status] = stats.get(status, 0) + 1
+            if status == "error" and stats["error"] <= 20:
+                print(f"  ! {rec['file']}：{rec['message']}")
+            log_line = json.dumps(rec, ensure_ascii=False)
+            with args.log.open("a", encoding="utf-8", buffering=1) as log_file:
+                log_file.write(log_line + "\n")
+            if counter % args.progress_every == 0 or counter == total:
+                elapsed = time.monotonic() - start
+                rate = counter / elapsed if elapsed else 0
+                eta = (total - counter) / rate if rate else 0
+                print(
+                    f"[{counter:>6}/{total}] 入库 {stats['ok']} 跳过 {stats['skip']} "
+                    f"失败 {stats['error']} | {rate:.1f} 本/秒 | 已用 {_fmt_dur(elapsed)} "
+                    f"| 剩余 {_fmt_dur(eta)}",
+                    flush=True,
+                )
+
+        try:
+            for path_str in paths:
+                rec = _http_import(base, path_str, session, params, None)
+                if rec.get("status") == "error" and rec["message"].startswith("需要管理员登录"):
+                    # 会话中途失效，重新登录后重试一次
+                    resp = session.post(
+                        f"{base}/admin/login",
+                        data={"password": args.admin_password, "next": "/admin"},
+                        timeout=30, allow_redirects=False,
+                    )
+                    if session.cookies:
+                        cookies_path.parent.mkdir(parents=True, exist_ok=True)
+                        cookies_path.write_text(json.dumps(dict(session.cookies)), encoding="utf-8")
+                        rec = _http_import(base, path_str, session, params, None)
+                handle(rec)
+        except KeyboardInterrupt:
+            interrupted = True
+            print("\n收到 Ctrl+C，已处理的都写进日志了。")
+
+        elapsed = time.monotonic() - start
+        print("-" * 72)
+        print(
+            f"{'中断' if interrupted else '完成'}：处理 {counter}/{total}，"
+            f"入库 {stats['ok']}，跳过 {stats['skip']}，失败 {stats['error']}，"
+            f"耗时 {_fmt_dur(elapsed)}"
+        )
+        print(f"日志 {args.log}（重跑同一条命令即可继续）")
+        return 130 if interrupted else 0
+    except requests.RequestException as exc:
+        print(f"与站点通信失败：{exc}")
+        return 1
 
 
 if __name__ == "__main__":  # Windows 用 spawn 起子进程，这个 guard 必须有

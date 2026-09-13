@@ -120,9 +120,28 @@ docker compose exec web python -c "import sqlite3;sqlite3.connect('/data/novel.d
 # 灌本地 txt：先在 docker-compose.yml 里放开 /srv/txt:/txt:ro 那行挂载
 docker compose exec web python scripts/bulk_import.py /txt -r --workers 4
 
+# 追更更新：重跑同一条命令即可，处理过的文件按 jsonl 日志跳过
+# （要用 --force-mode / --target-chars 覆盖后台设置的解析选项的话，每次都要带同样的值，
+#   日志只记"处理过"，不记当时用的什么选项）
+
 # 拉了新代码
 docker compose up -d --build        # 库在挂载卷里，重建容器不影响数据
 ```
+
+**导入到另一台机器/容器里的站点**（脚本与服务不在一起，或者容器环境不好再挂目录时）：
+
+```bash
+# 本机库目录里是 .env，ADMIN_PASSWORD 填站点的管理员密码
+python scripts/bulk_import.py <目录> -r --http http://你的服务器:8000 --admin-password 你的密码
+
+# 已登录过的会话 cookie 缓存在 <数据目录>/uploader_cookies.json，过期自动重新登录，
+# 重跑可以不加 --admin-password
+```
+
+HTTP 模式下脚本不再自己解析入库，而是把文件逐个 POST 给站点的 `/admin/upload`，
+复用同一条导入链路（解码、去重、分章、进度）——即"站点在哪，解析就在哪"。
+返回的 `job_id` 轮询到任务结束，结果照常写进 jsonl 断点续跑；会话失效会自动重登后重试。
+注意这模式是一次一本地推，比直接在站点机器上跑离线导入慢，适合远程推送而非大批量灌库。
 
 ### nginx 与 HTTPS
 
