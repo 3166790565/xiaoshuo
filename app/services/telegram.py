@@ -81,6 +81,18 @@ def _new_client(session: str = "") -> TelegramClient:
     return TelegramClient(StringSession(session), config.TG_API_ID, config.TG_API_HASH)
 
 
+async def _make_client(session: str = "") -> TelegramClient:
+    """构造 TelegramClient 必须在有运行中 loop 的线程里做——Py3.12 起 worker 线程
+    没有默认 loop，在外面直接 new 会抛 RuntimeError，所以经 _call 挪到长驻 loop 上。"""
+    return _new_client(session)
+
+
+async def _disconnect(client: TelegramClient) -> None:
+    """Telethon 的 disconnect() 是普通方法，内部读 self.loop（= 当前线程的运行中 loop），
+    在 worker 线程里直接调用会抛 "no current event loop"，所以必须包成协程在 loop 上跑。"""
+    await client.disconnect()
+
+
 # ------------------------------------------------------------------ 设置存取
 # 这些 key 只在本模块用，不进 settings.py 的 DEFAULTS（那套只管解析设置）
 
@@ -118,7 +130,7 @@ def _invalidate_session() -> None:
     db.execute("DELETE FROM app_settings WHERE key = 'tg_session'")
     if client is not None:
         try:
-            _call(client.disconnect(), timeout=10)
+            _call(_disconnect(client), timeout=10)
         except Exception:
             pass
 
@@ -137,7 +149,7 @@ def _drop_pending(force: bool = False) -> None:
         _pending = None
     if pending is not None:
         try:
-            _call(pending["client"].disconnect(), timeout=10)
+            _call(_disconnect(pending["client"]), timeout=10)
         except Exception:
             pass
 
@@ -164,7 +176,7 @@ def login_send_code(phone: str) -> dict:
         number = "+" + number
     _drop_pending(force=True)
 
-    client = _new_client()
+    client = _call(_make_client())  # 构造也要在长驻 loop 上，见 _make_client 的注释
 
     async def run() -> str:
         await client.connect()
@@ -177,13 +189,13 @@ def login_send_code(phone: str) -> dict:
         state = _call(run(), timeout=60)
     except Exception as exc:
         try:
-            _call(client.disconnect(), timeout=10)
+            _call(_disconnect(client), timeout=10)
         except Exception:
             pass
         raise ValueError(f"发送验证码失败：{_friendly(exc)}") from exc
 
     if state == "already":  # 新建的空 session 正常不会走到这，防御一下
-        _call(client.disconnect(), timeout=10)
+        _call(_disconnect(client), timeout=10)
         raise ValueError("登录状态异常，请重试一次")
 
     with _state_lock:
@@ -285,7 +297,7 @@ def get_client() -> TelegramClient:
     if not session:
         raise TgNotLoggedIn("尚未登录 Telegram")
 
-    client = _new_client(session)
+    client = _call(_make_client(session))
 
     async def run() -> bool:
         await client.connect()
@@ -298,7 +310,7 @@ def get_client() -> TelegramClient:
         state = _call(run(), timeout=60)
     except Exception as exc:
         try:
-            _call(client.disconnect(), timeout=10)
+            _call(_disconnect(client), timeout=10)
         except Exception:
             pass
         # 网络抖动、超时这类临时故障不清会话，下次再试还有机会
@@ -636,7 +648,7 @@ def _auto_tick() -> None:
 
 def shutdown() -> None:
     """main.py lifespan 退出时调：停调度器、断开 client、停 loop 线程。"""
-    global _loop
+    global _loop, _client
     stop_scheduler()
     _drop_pending(force=True)
     with _state_lock:
@@ -644,7 +656,7 @@ def shutdown() -> None:
         _client = None
     if client is not None:
         try:
-            _call(client.disconnect(), timeout=10)
+            _call(_disconnect(client), timeout=10)
         except Exception:
             pass
     loop = _loop
