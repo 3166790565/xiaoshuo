@@ -29,7 +29,7 @@ import os
 import sqlite3
 import sys
 import time
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -141,6 +141,35 @@ def _iter_txt(root: Path, recursive: bool) -> list[str]:
 
 # --------------------------------------------------------------------- HTTP 模式
 
+
+def _make_session(cookies_path: Path) -> requests.Session:
+    """造一个带已缓存 cookie 的 Session；无 cookie 则调用方自行登录填上。"""
+    s = requests.Session()
+    if cookies_path.is_file():
+        s.cookies.update(json.loads(cookies_path.read_text(encoding="utf-8")))
+    return s
+
+
+def _http_login_session(base: str, password: str, cookies_path: Path) -> requests.Session:
+    s = requests.Session()
+    resp = s.post(
+        f"{base}/admin/login",
+        data={"password": password, "next": "/admin"},
+        timeout=30,
+        allow_redirects=False,
+    )
+    if resp.status_code not in (302, 303) or not s.cookies:
+        raise RuntimeError("登录失败")
+    persist_cookies(cookies_path, s)
+    return s
+
+
+def persist_cookies(cookies_path: Path, session: requests.Session) -> None:
+    # 多线程下也可能并发写同一个 cookie 文件，但这只是冗余刷新，偶尔互相覆盖无害
+    cookies_path.parent.mkdir(parents=True, exist_ok=True)
+    cookies_path.write_text(json.dumps(dict(session.cookies)), encoding="utf-8")
+
+
 def _http_import(
     base: str,
     path_str: str,
@@ -149,6 +178,9 @@ def _http_import(
     target_chars: int | None,
 ) -> dict:
     """把单个文件 POST 到 /admin/upload，轮询到任务完成，返回一条与离线模式同构的记录。"""
+    import requests
+    from app.services.txt_parser import clean_filename
+
     file = Path(path_str)
     rec: dict = {"path": path_str, "file": clean_filename(file.name), "status": "error", "message": ""}
     try:
@@ -217,6 +249,73 @@ def _fmt_dur(seconds: float) -> str:
     return f"{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
+class _Progress:
+    """单行进度条：填充块 + 百分比 + 计数 + 速率 + 剩余时间。
+
+    用 \r 反复重绘同一行，进度条永远钉在终端最底行：
+    log() 先擦掉进度条、在上面打一行日志、再在下面重绘，互不覆盖。
+    stdout 不是终端（重定向、管道）时自动退化为按批打行，tick() 直接 no-op。
+    """
+
+    def __init__(self, total: int, width: int = 36) -> None:
+        self.total = total
+        self.width = width
+        # 只要有非零工作量就画；太少时靠 10Hz 限频，不至于闪烁 заметно
+        self.active = bool(sys.stdout.isatty()) and total > 0
+        self._start = time.monotonic()
+        self._last = 0.0
+        self._done = 0
+
+    def _erase(self) -> None:
+        """把当前行整个擦掉（行首回到 \r，空一行再回来）。"""
+        sys.stdout.write("\r" + " " * 110 + "\r")
+        sys.stdout.flush()
+
+    def _line(self) -> str:
+        elapsed = time.monotonic() - self._start
+        frac = self.total and (self._done / self.total)
+        filled = int(frac * self.width)
+        bar = "█" * filled + "░" * (self.width - filled)
+        rate = self._done / elapsed if elapsed else 0.0
+        eta = (self.total - self._done) / rate if rate else 0.0
+        eta_text = _fmt_dur(eta) if rate else "--:--:--"
+        return (
+            f"{bar} {frac * 100:5.1f}% | {self._done:>7,}/{self.total:>7,} "
+            f"| {rate:.2f} 本/秒 | 剩余 {eta_text}"
+        )
+
+    def tick(self, done: int) -> None:
+        if not self.active:
+            return
+        self._done = done
+        now = time.monotonic()
+        if done < self.total and now - self._last < 0.1:  # 最快每秒重绘 10 次
+            return
+        self._last = now
+        sys.stdout.write("\r" + self._line())
+        sys.stdout.flush()
+
+    def log(self, text: str) -> None:
+        """在进度条上方打一行日志，再重绘进度条到最底。非终端时等价 print。"""
+        if not self.active:
+            print(text, flush=True)
+            return
+        self._erase()
+        sys.stdout.write(text + "\n")
+        sys.stdout.flush()
+        if self._done > 0:
+            self._draw_quiet()
+
+    def _draw_quiet(self) -> None:
+        sys.stdout.write("\r" + self._line())
+        sys.stdout.flush()
+
+    def finish(self) -> None:
+        """收尾：把进度条那行彻底清掉，让总结从行首开始。"""
+        if self.active:
+            self._erase()
+
+
 def _db_size() -> str:
     from app import config
 
@@ -271,6 +370,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--progress-every", type=int, default=100, help="每处理多少个打一行进度")
     parser.add_argument("--http", type=str, default="", help="HTTP 模式：站点地址，如 http://127.0.0.1:8000")
     parser.add_argument("--admin-password", type=str, default="", help="HTTP 模式：管理员密码（首次或会话过期时用）")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=0,
+        help="HTTP 模式并发推数，默认 CPU 数；1 = 串行（老行为）",
+    )
     return parser.parse_args(argv)
 
 
@@ -343,6 +448,7 @@ def main(argv: list[str] | None = None) -> int:
     start = time.monotonic()
     counter = 0
     interrupted = False
+    progress = _Progress(total)
 
     with args.log.open("a", encoding="utf-8", buffering=1) as log_file:
 
@@ -354,18 +460,19 @@ def main(argv: list[str] | None = None) -> int:
             counter += 1
             stats[rec["status"]] = stats.get(rec["status"], 0) + 1
             if rec["status"] == "error" and stats["error"] <= 20:
-                print(f"  ! {rec['file']}：{rec['message']}")
+                progress.log(f"  ! {rec['file']}：{rec['message']}")
             log_file.write(json.dumps(rec, ensure_ascii=False) + "\n")
             if counter % args.progress_every == 0 or counter == total:
                 elapsed = time.monotonic() - start
                 rate = counter / elapsed if elapsed else 0
                 eta = (total - counter) / rate if rate else 0
-                print(
+                progress.log(
                     f"[{counter:>6}/{total}] 入库 {stats['ok']} 跳过 {stats['skip']} "
                     f"失败 {stats['error']} | {rate:.1f} 本/秒 | 已用 {_fmt_dur(elapsed)} "
-                    f"| 剩余 {_fmt_dur(eta)} | 库 {_db_size()}",
-                    flush=True,
+                    f"| 剩余 {_fmt_dur(eta)} | 库 {_db_size()}"
                 )
+            else:
+                progress.tick(counter)
 
         try:
             if args.workers <= 0:  # 单进程：调试时看堆栈方便
@@ -402,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
             interrupted = True
             print("\n收到 Ctrl+C，已处理的都写进日志了。")
 
+    progress.finish()  # 清掉进度条，让总结从行首开始
     elapsed = time.monotonic() - start
     print("-" * 72)
     print(
@@ -429,25 +537,17 @@ def _run_http(args: argparse.Namespace, config, app_settings, clean_filename) ->
     # 会话 cookie 与续跑日志都放数据目录，与容器挂载卷行为一致
     cookies_path = config.DATA_DIR / "uploader_cookies.json"
     try:
-        session = requests.Session()
-        if cookies_path.is_file():
-            session.cookies.update(json.loads(cookies_path.read_text(encoding="utf-8")))
+        session = _make_session(cookies_path)
         probe = session.get(f"{base}/admin/upload", timeout=30, allow_redirects=False)
         if probe.status_code == 303 or (probe.status_code >= 400 and not session.cookies):
             if not args.admin_password:
                 print("会话已失效，请提供 --admin-password 重新登录。")
                 return 2
-            resp = session.post(
-                f"{base}/admin/login",
-                data={"password": args.admin_password, "next": "/admin"},
-                timeout=30,
-                allow_redirects=False,
-            )
-            if resp.status_code not in (302, 303) or not session.cookies:
+            try:
+                session = _http_login_session(base, args.admin_password, cookies_path)
+            except RuntimeError:
                 print("登录失败：请检查管理员密码或站点地址。")
                 return 2
-            cookies_path.parent.mkdir(parents=True, exist_ok=True)
-            cookies_path.write_text(json.dumps(dict(session.cookies)), encoding="utf-8")
 
         paths = _iter_txt(args.directory, args.recursive)
         print(f"HTTP 模式：{args.http}，扫描到 {len(paths)} 个 txt")
@@ -469,6 +569,7 @@ def _run_http(args: argparse.Namespace, config, app_settings, clean_filename) ->
         start = time.monotonic()
         counter = 0
         interrupted = False
+        progress = _Progress(total)
 
         def handle(rec: dict) -> None:
             nonlocal counter
@@ -476,7 +577,7 @@ def _run_http(args: argparse.Namespace, config, app_settings, clean_filename) ->
             status = rec.get("status", "error")
             stats[status] = stats.get(status, 0) + 1
             if status == "error" and stats["error"] <= 20:
-                print(f"  ! {rec['file']}：{rec['message']}")
+                progress.log(f"  ! {rec['file']}：{rec['message']}")
             log_line = json.dumps(rec, ensure_ascii=False)
             with args.log.open("a", encoding="utf-8", buffering=1) as log_file:
                 log_file.write(log_line + "\n")
@@ -484,32 +585,58 @@ def _run_http(args: argparse.Namespace, config, app_settings, clean_filename) ->
                 elapsed = time.monotonic() - start
                 rate = counter / elapsed if elapsed else 0
                 eta = (total - counter) / rate if rate else 0
-                print(
+                progress.log(
                     f"[{counter:>6}/{total}] 入库 {stats['ok']} 跳过 {stats['skip']} "
                     f"失败 {stats['error']} | {rate:.1f} 本/秒 | 已用 {_fmt_dur(elapsed)} "
-                    f"| 剩余 {_fmt_dur(eta)}",
-                    flush=True,
+                    f"| 剩余 {_fmt_dur(eta)}"
                 )
+            else:
+                progress.tick(counter)
+
+        # HTTP 模式默认并发 = CPU 数（--concurrency 覆盖；1 退化为串行）
+        concurrency = args.concurrency or max(1, (os.cpu_count() or 4) - 1)
+
+        def worker(path_str: str) -> None:
+            nonlocal session
+            rec = _http_import(base, path_str, session, params, None)
+            # 401 既可能来自会话失效，也可能来自密码错误 / 别的鉴权问题。
+            # 统一走登录：密码错时重新登录也不会拿到 cookie，重试同样 401，再试一次就放弃
+            if rec.get("status") == "error" and "401" in rec["message"]:
+                try:
+                    s_new = _http_login_session(base, args.admin_password, cookies_path)
+                except RuntimeError:
+                    s_new = None
+                if s_new is not None:
+                    session = s_new  # 旧会话作废，换新的
+                rec = _http_import(base, path_str, session, params, None)
+            handle(rec)
 
         try:
-            for path_str in paths:
-                rec = _http_import(base, path_str, session, params, None)
-                if rec.get("status") == "error" and rec["message"].startswith("需要管理员登录"):
-                    # 会话中途失效，重新登录后重试一次
-                    resp = session.post(
-                        f"{base}/admin/login",
-                        data={"password": args.admin_password, "next": "/admin"},
-                        timeout=30, allow_redirects=False,
-                    )
-                    if session.cookies:
-                        cookies_path.parent.mkdir(parents=True, exist_ok=True)
-                        cookies_path.write_text(json.dumps(dict(session.cookies)), encoding="utf-8")
-                        rec = _http_import(base, path_str, session, params, None)
-                handle(rec)
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                # 保持有限任务在飞，避免 8 万份结果全堆内存；也方便 Ctrl+C 干净退出
+                inflight = max(concurrency * 3, 8)
+                pending = set()
+                queue = iter(paths)
+                while True:
+                    while len(pending) < inflight:
+                        nxt = next(queue, None)
+                        if nxt is None:
+                            break
+                        pending.add(pool.submit(worker, nxt))
+                    if not pending:
+                        break
+                    finished, pending = wait(pending, return_when=FIRST_COMPLETED)
+                    # future 的结果已经在 worker() 里通过 handle() 处理完了，
+                    # 这里只消费异常，不能再调 handle（会双结算）
+                    for future in finished:
+                        exc = future.exception()
+                        if exc is not None:
+                            handle({"file": "?", "status": "error", "message": f"{type(exc).__name__}: {exc}", "path": ""})
         except KeyboardInterrupt:
             interrupted = True
             print("\n收到 Ctrl+C，已处理的都写进日志了。")
 
+        progress.finish()  # 清掉进度条，让总结从行首开始
         elapsed = time.monotonic() - start
         print("-" * 72)
         print(

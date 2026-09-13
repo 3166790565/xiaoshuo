@@ -114,34 +114,71 @@ docker compose exec web python -c "import sqlite3;sqlite3.connect('/data/novel.d
 > SQLite 的 WAL 依赖共享内存，隔着 virtiofs/9p 会报 `disk I/O error` 或一直 locked。
 > 要么把项目放进 WSL2 的文件系统，要么把 `./data:/data` 换成 docker 命名卷。Linux 服务器上没这问题。
 
-### 批量导入与更新
+### 批量导入脚本
+
+`scripts/bulk_import.py` 把目录里的 txt 批量灌进库，走的是和后台上传完全一样的链路：
+解码 → 内容哈希去重 → 分章 → 入库，解析选项用后台设置里的值。
+
+#### 本机直接跑（最快，推荐）
 
 ```bash
-# 灌本地 txt：先在 docker-compose.yml 里放开 /srv/txt:/txt:ro 那行挂载
+pip install -r requirements.txt
+
+# Windows Git Bash 里先设下编码，否则中文输出可能撞 GBK 报错
+export PYTHONIOENCODING=utf-8
+
+# 三个最常用的用法
+python scripts/bulk_import.py "E:/PythonProject/小说爬/小说_90000-"   # 必填参数：txt 所在目录
+python scripts/bulk_import.py <目录> -r --workers 8 --limit 200        # 递归子目录、8 进程并行、只处理前 200 个先验一把
+python scripts/bulk_import.py <目录> --dry-run                         # 只解析不写库，看效果用
+```
+
+常用参数（全部参数看 `python scripts/bulk_import.py --help`）：
+
+| 参数 | 作用 |
+| --- | --- |
+| `-r` / `--recursive` | 连子目录一起扫 |
+| `--workers N` | 解析进程数，默认 `CPU数-1`；`0` 单进程调试 |
+| `--limit N` | 只处理前 N 个文件（先跑小样） |
+| `--dry-run` | 只解析不写库 |
+| `--force-mode single/auto` | 强制整本单章 / 按字数分节；不传则自动判定 |
+| `--target-chars N` | 覆盖后台的「分节字数」 |
+| `--no-resume` / `--retry-errors` | 忽略续跑日志 / 重试上次失败的文件 |
+
+运行期间会打印进度（已处理 / 入库 / 跳过 / 失败，速度，剩余时间），每本一行结果，坏文件不会被掐断。
+
+- **断点续跑**：中断了直接重跑**同一条命令**，已处理过的文件按 `data/bulk_import.jsonl`（跟随 `NOVEL_DATA_DIR`）自动跳过
+- **去重**：按"去掉全部空白的正文"的 sha256 判重，库里有就跳过，已入库的内容不会重复入库
+- **追更**：目录里新加了 txt，重跑一次即可，旧的不用管
+
+#### Docker 容器里跑
+
+```bash
+# 先在 docker-compose.yml 里放开 /srv/txt:/txt:ro 那行挂载
 docker compose exec web python scripts/bulk_import.py /txt -r --workers 4
+```
 
-# 追更更新：重跑同一条命令即可，处理过的文件按 jsonl 日志跳过
-# （要用 --force-mode / --target-chars 覆盖后台设置的解析选项的话，每次都要带同样的值，
-#   日志只记"处理过"，不记当时用的什么选项）
+注意容器里库文件的路径是 `/data`，不是本机的 `data/`。
 
-# 拉了新代码
+#### 推到另一台机器/容器里的站点（HTTP 模式）
+
+脚本与服务不在一起（例如远程服务器/容器里不好挂目录）时，`--http` 让脚本把文件逐个
+POST 给站点的 `/admin/upload`，**复用站点侧的导入链路——"站点在哪，解析就在哪"**：
+
+```bash
+python scripts/bulk_import.py <目录> -r --http http://你的服务器:8000 --admin-password 你的密码
+```
+
+- 返回的 `job_id` 会轮询到任务结束，逐本结果照常写进 jsonl 断点续跑
+- 已登录过的会话 cookie 缓存在 `<数据目录>/uploader_cookies.json`，过期自动重新登录，
+  之后重跑可以不加 `--admin-password`
+- 该模式一次一本地推，比直接在站点机器上跑离线导入慢，适合远程推送而非大批量灌库
+
+#### 拉了新代码
+
+```bash
 docker compose up -d --build        # 库在挂载卷里，重建容器不影响数据
 ```
-
-**导入到另一台机器/容器里的站点**（脚本与服务不在一起，或者容器环境不好再挂目录时）：
-
-```bash
-# 本机库目录里是 .env，ADMIN_PASSWORD 填站点的管理员密码
-python scripts/bulk_import.py <目录> -r --http http://你的服务器:8000 --admin-password 你的密码
-
-# 已登录过的会话 cookie 缓存在 <数据目录>/uploader_cookies.json，过期自动重新登录，
-# 重跑可以不加 --admin-password
-```
-
-HTTP 模式下脚本不再自己解析入库，而是把文件逐个 POST 给站点的 `/admin/upload`，
-复用同一条导入链路（解码、去重、分章、进度）——即"站点在哪，解析就在哪"。
-返回的 `job_id` 轮询到任务结束，结果照常写进 jsonl 断点续跑；会话失效会自动重登后重试。
-注意这模式是一次一本地推，比直接在站点机器上跑离线导入慢，适合远程推送而非大批量灌库。
 
 ### nginx 与 HTTPS
 
