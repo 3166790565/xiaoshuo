@@ -573,6 +573,11 @@ textarea.mono { font-family: var(--mono); font-size: 13px; }
 .cell-note { color: var(--ink-soft); font-size: 13px; }
 .row-error td { background: rgba(140, 58, 50, 0.06); }
 
+/* 表格操作列里的行内小表单与按钮（TG 频道页） */
+.inline-form { display: inline; }
+.cell-actions .btn { padding: var(--s1) var(--s3); font-size: 13px; }
+.cell-actions > * + * { margin-left: var(--s2); }
+
 .form .field { margin-bottom: var(--s5); }
 .form label, .label-like { display: block; font-size: 14px; margin-bottom: var(--s2); color: var(--ink-soft); }
 .form .field input:not([type="checkbox"]):not([type="radio"]), .form .field select { width: min(420px, 100%); }

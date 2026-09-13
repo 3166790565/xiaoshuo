@@ -11,8 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, db
-from .routers import admin, api, site
+from .routers import admin, api, site, tg
 from .security import AdminRedirect, redirect_to_login
+from .services import telegram
 from .templating import templates
 
 log = logging.getLogger("uvicorn.error")
@@ -35,7 +36,9 @@ async def lifespan(_: FastAPI):
         log.warning("没有配置 SECRET_KEY，本次启动随机生成，重启后已登录的会话会失效")
     if not config.API_TOKEN:
         log.info("API_TOKEN 未设置，/api/* 为公开只读接口（书源抓取需要如此）")
+    telegram.start_scheduler()  # TG 频道定期自动同步（间隔在后台设置，0 为关闭）
     yield
+    telegram.shutdown()
     db.close_conn()
 
 
@@ -50,6 +53,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=str(config.STATIC_DIR)), name="static")
 app.include_router(site.router)
 app.include_router(admin.router)
+app.include_router(tg.router)
 app.include_router(api.router)
 
 

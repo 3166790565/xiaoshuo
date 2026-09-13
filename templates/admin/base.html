@@ -15,6 +15,7 @@
     <nav class="head-nav" aria-label="后台导航">
       <a href="/admin" {% if active == 'home' %}class="is-on"{% endif %}>概览</a>
       <a href="/admin/upload" {% if active == 'upload' %}class="is-on"{% endif %}>上传</a>
+      <a href="/admin/telegram" {% if active == 'telegram' %}class="is-on"{% endif %}>TG 频道</a>
       <a href="/admin/books" {% if active == 'books' %}class="is-on"{% endif %}>书籍</a>
       <a href="/admin/settings" {% if active == 'settings' %}class="is-on"{% endif %}>解析设置</a>
       <a href="/">看前台</a>

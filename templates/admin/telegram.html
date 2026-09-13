@@ -1,0 +1,167 @@
+{% extends "admin/base.html" %}
+{% block title %}TG 频道 · {{ site_name }} 后台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>TG 频道</h1>
+  <p class="page-sub">登录 Telegram 账号后，把公开频道里的 txt 一本一本爬进书库；前台实时可见。</p>
+</div>
+
+<section class="card form">
+  <div class="section-head"><h2>Telegram 账号</h2></div>
+
+  {% if not api_ready %}
+  <div class="field">
+    <p class="field-hint">
+      还没配置应用凭证：在 <a href="https://my.telegram.org" rel="noopener" target="_blank">my.telegram.org</a>
+      申请 <code>TG_API_ID</code> / <code>TG_API_HASH</code> 写进 <code>.env</code>，重启后再来这里登录。
+    </p>
+  </div>
+
+  {% elif logged_in %}
+  <div class="field">
+    <p>已登录：<strong>{{ phone }}</strong></p>
+    <p class="field-hint">会话存在数据库里，重启服务不用重新登录。</p>
+  </div>
+  <div class="form-actions">
+    <button id="tg-logout" class="btn btn-ghost" type="button">退出登录</button>
+    <span id="tg-account-note" class="field-hint"></span>
+  </div>
+
+  {% elif pending_step == 'code' %}
+  <div class="field">
+    <p>验证码已发到 <strong>{{ phone }}</strong></p>
+    <label for="tg-code">输入验证码</label>
+    <input id="tg-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+    <p class="field-hint">收不到可以回上一步重发。</p>
+  </div>
+  <div class="form-actions">
+    <button id="tg-verify-btn" class="btn btn-primary" type="button">验证</button>
+    <button id="tg-restart" class="btn btn-ghost" type="button">换个手机号</button>
+    <span id="tg-account-note" class="field-hint"></span>
+  </div>
+
+  {% elif pending_step == 'password' %}
+  <div class="field">
+    <p>这个账号开了两步验证，还需要云密码。</p>
+    <label for="tg-password">输入云密码</label>
+    <input id="tg-password" type="password" autocomplete="current-password">
+  </div>
+  <div class="form-actions">
+    <button id="tg-password-btn" class="btn btn-primary" type="button">验证</button>
+    <span id="tg-account-note" class="field-hint"></span>
+  </div>
+
+  {% else %}
+  <div class="field">
+    <label for="tg-phone">手机号</label>
+    <input id="tg-phone" type="tel" placeholder="+8613800138000">
+    <p class="field-hint">要带国家区号。登录的是你自己的 TG 账号，只用来读频道消息。</p>
+  </div>
+  <div class="form-actions">
+    <button id="tg-send-btn" class="btn btn-primary" type="button">发送验证码</button>
+    <span id="tg-account-note" class="field-hint"></span>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card form">
+  <div class="section-head">
+    <h2>频道列表</h2>
+    <button id="tg-sync-all" class="btn btn-primary" type="button"
+            {% if not (logged_in and channels) %}disabled{% endif %}>全部同步</button>
+  </div>
+
+  {% if channels %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>频道</th><th>状态</th><th>上次同步</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for channel in channels %}
+        <tr>
+          <td>
+            <a href="https://t.me/{{ channel.username }}" rel="noopener" target="_blank">{{ channel.title }}</a>
+            <span class="page-sub">@{{ channel.username }}</span>
+          </td>
+          <td>
+            {% if channel.enabled %}<span class="tag">启用</span>{% else %}<span class="tag tag-plain">停用</span>{% endif %}
+          </td>
+          <td>
+            {{ channel.last_sync_at or '从未' }}
+            {% if channel.last_message_id %}<span class="page-sub">至消息 #{{ channel.last_message_id }}</span>{% endif %}
+          </td>
+          <td class="cell-actions">
+            <button class="btn btn-ghost tg-sync" type="button" data-channel="{{ channel.id }}"
+                    {% if not logged_in %}disabled{% endif %}>同步</button>
+            <form method="post" action="/admin/telegram/channels/{{ channel.id }}/toggle" class="inline-form">
+              <button class="btn btn-ghost" type="submit">{{ '停用' if channel.enabled else '启用' }}</button>
+            </form>
+            <form method="post" action="/admin/telegram/channels/{{ channel.id }}/delete" class="inline-form">
+              <button class="btn btn-ghost" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="page-sub">还没有添加频道。下面粘一个公开频道链接试试。</p>
+  {% endif %}
+
+  <form method="post" action="/admin/telegram/channels" class="field">
+    <label for="tg-channel-link">添加频道</label>
+    <input id="tg-channel-link" name="link" type="text" placeholder="https://t.me/频道用户名"
+           {% if not logged_in %}disabled{% endif %}>
+    <p class="field-hint">只支持公开频道（t.me/xxx 这种用户名链接）；私有频道的 + 邀请链接不行。</p>
+  </form>
+</section>
+
+<form class="card form" method="post" action="/admin/telegram/settings">
+  <div class="section-head"><h2>自动同步</h2></div>
+  <div class="field">
+    <label for="tg-interval">同步间隔（分钟）</label>
+    <input id="tg-interval" name="sync_interval" type="number" min="0" max="1440" step="1"
+           value="{{ sync_interval }}">
+    <p class="field-hint">0 表示关闭。到了间隔就把所有启用频道各同步一遍，只拉上次之后的新消息。</p>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">保存</button>
+  </div>
+</form>
+
+<section id="progress-card" class="card is-hidden" aria-live="polite">
+  <div class="section-head">
+    <h2>同步进度</h2>
+    <span id="progress-status" class="tag tag-plain">准备中</span>
+  </div>
+  <div class="progress"><div id="progress-bar" class="progress-bar" style="width:0%"></div></div>
+  <p id="progress-text" class="page-sub">0 / 0</p>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>文件</th><th>结果</th><th>书名</th><th>分章</th><th>章数</th><th>字数</th><th>备注</th></tr></thead>
+      <tbody id="progress-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+{% if jobs %}
+<section class="section">
+  <div class="section-head"><h2>最近任务</h2></div>
+  <ul class="job-list">
+    {% for job in jobs %}
+    <li>
+      <a href="/admin/jobs/{{ job.id }}"><code>{{ job.id[:8] }}</code></a>
+      <span class="tag tag-plain">{{ job.status }}</span>
+      <span>{{ job.done }}/{{ job.total }} · 成功 {{ job.ok }} · 失败 {{ job.failed }}</span>
+      <span class="page-sub">{{ job.created_at }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/admin.js" defer></script>
+{% endblock %}

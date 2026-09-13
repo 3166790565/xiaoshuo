@@ -74,6 +74,10 @@ SESSION_MAX_AGE = 7 * 24 * 3600
 # /api/* 可选令牌；留空则公开（书源抓取通常需要免鉴权）
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 
+# Telegram 爬频道用的应用凭证（在 my.telegram.org 申请）；不配则后台 TG 页面提示去配置
+TG_API_ID = int(os.environ.get("TG_API_ID", "0") or "0")
+TG_API_HASH = os.environ.get("TG_API_HASH", "").strip()
+
 # 上传与解压防护上限
 MAX_TXT_BYTES = 64 * 1024 * 1024
 MAX_ZIP_ENTRY_BYTES = 64 * 1024 * 1024

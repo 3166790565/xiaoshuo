@@ -43,6 +43,7 @@ $env:API_TOKEN = "abc123"; python run.py           # PowerShell
 | `API_TOKEN` | 空 | 设置后 `/api/*` 需要 `?token=` 或 `Authorization` 头；留空则公开 |
 | `SITE_BASE_URL` | `http://127.0.0.1:8000` | 写进书源与 API 返回 URL 的对外地址 |
 | `SITE_NAME` / `SITE_TAGLINE` | 青灯书斋 / 一盏灯，一本书 | 站名与副标题 |
+| `TG_API_ID` / `TG_API_HASH` | 空 | Telegram 频道爬取的应用凭证，见「Telegram 频道导入」一节 |
 | `NOVEL_DATA_DIR` / `NOVEL_DB_PATH` | `data/` | 数据目录与库文件位置 |
 | `NOVEL_ENV_FILE` | `.env` | 换一个配置文件路径。只能由系统环境变量指定 |
 | `HOST` / `PORT` / `RELOAD` | 127.0.0.1 / 8000 / 关 | 仅 `run.py` 使用 |
@@ -74,8 +75,15 @@ docker compose logs -f web
 
 > compose 解析 `.env` 比 `app/config.py` 严格：别写 `export ` 前缀，值也别加引号。
 
-第一次起不来，九成是挂载目录的权限：容器里跑的是 uid 1000，而 docker 自动创建的目录归 root，
-日志里会是 `unable to open database file`。宿主机上 `sudo chown -R 1000:1000 data` 就好。
+第一次起不来，九成是挂载目录的权限：容器里跑的是 uid 1000，而 docker 自动创建的目录、
+或者用 root/scp 拷进来的库文件都归 root。两种报法都是同一个病：
+
+- `unable to open database file`——目录不可写，库文件还没建起来。
+- `attempt to write a readonly database`（挂在 `PRAGMA journal_mode=WAL` 上）——库文件存在但
+  uid 1000 只读，SQLite 会静默降级成只读连接，直到第一次写才报错。
+
+宿主机上 `sudo chown -R 1000:1000 data` 就好，注意要带 `-R`，`data/` 里的 `.db`、
+`-wal`、`-shm` 都得一起换主。
 
 ### 换库
 
@@ -179,7 +187,7 @@ app/
   main.py            FastAPI 装配、静态与模板挂载、错误页
   config.py          路径、密钥、可选开关
   db.py              sqlite3 helper（每线程一连接、WAL、外键）
-  schema.sql         books / chapters / chapters_fts / import_jobs / app_settings
+  schema.sql         books / chapters / chapters_fts / import_jobs / app_settings / tg_channels
   security.py        管理员口令校验与签名 cookie
   paging.py          分页计算
   templating.py      Jinja2 环境、过滤器、占位封面配色
@@ -187,12 +195,14 @@ app/
     decoder.py       编码探测与解码
     txt_parser.py    章节识别 + 分节 + 段落格式化（核心）
     importer.py      单本/多文件/ZIP 导入、去重、任务进度、重新分章
+    telegram.py      TG 频道爬取：网页登录、频道管理、增量同步、自动调度
     settings.py      可持久化的解析选项
     repo.py          书籍与章节查询、FTS 检索
     booksource.py    Legado 书源生成
   routers/
     site.py          前台页面
     admin.py         后台页面与操作接口
+    tg.py            后台的 TG 频道页
     api.py           阅读软件用 JSON 接口
 templates/  static/  legado/  data/（已 gitignore）
 Dockerfile  docker-compose.yml  .dockerignore   部署用，见「部署」一节
@@ -256,6 +266,7 @@ Dockerfile  docker-compose.yml  .dockerignore   部署用，见「部署」一�
 - **上传**：拖拽区一次多选 txt，也支持 ZIP（校验路径穿越、单条与总解压体积、条目数上限，只取 `.txt`）。
   表单有三个即时选项：分节字数、强制整本单章、强制按字数切。上传入队后台任务，
   前端轮询 `/admin/api/jobs/{id}`，逐本显示分章模式与章数——分章异常的书一眼能看出来
+- **TG 频道**：登录 Telegram 账号后，把公开频道里的 txt 逐本爬进书库，见下节
 - **书籍管理**：分页列表，可按分章模式筛选；编辑书名/作者/简介/封面/分类；删除（连带章节与索引）
 - **重新分章**：单本，或勾选若干本，或对当前筛选条件全量重跑。用库里现存正文重新解析，
   书名作者这些人工改过的字段不受影响。调完设置后批量修复就靠它
@@ -263,6 +274,32 @@ Dockerfile  docker-compose.yml  .dockerignore   部署用，见「部署」一�
 - **解析设置**：上面那几个开关
 
 内容去重按"去掉全部空白的正文"取 sha256，同一本书换编码、换换行风格不会重复入库。
+
+## Telegram 频道导入
+
+后台「TG 频道」页可以把公开频道里的 txt 附件一本一本爬进书库，前台实时可见。
+
+### 一次性准备
+
+1. 在 [my.telegram.org](https://my.telegram.org) → API development tools 创建应用，
+   把拿到的 `TG_API_ID` / `TG_API_HASH` 写进 `.env`（Docker 部署同样写在 `.env`，
+   compose 会透传进容器），重启服务
+2. 打开 `/admin/telegram`，输手机号（带国家区号）→ 收验证码 → 输码；开了两步验证的再输云密码。
+   登录态（会话字符串）存在数据库里，重启不用重登
+
+### 使用
+
+- 粘贴 `t.me/xxx` 这样的公开频道链接添加频道（私有频道的 `+` 邀请链接不支持）
+- 「同步」逐个下载频道里的 txt 入库；图片、视频、epub 等非 txt 附件直接忽略，
+  超过 64MB 的 txt 记为失败不下载。同步在后台线程跑，不挡网站；同一时刻只允许一个同步任务
+- 同步只处理上次之后的新消息（按消息 id 增量），已入库的内容再有 `content_hash` 判重兜底，
+  所以重复点同步是安全的
+- 「自动同步」设个间隔（分钟，0 关闭），到了点就把所有启用频道各同步一遍；
+  重启服务后从上次触发时间继续算
+- 进度复用导入任务的轮询页面，每本一行结果；中断的同步下次接着断点续爬
+
+> 登录的是你自己的 TG 账号，只用来读频道消息。`tg_session` 等状态存在库里，
+> 换库（`DB_FILE`）后要重新登录； TG 频道列表存在 `tg_channels` 表里，同样跟着库走。
 
 ## 前台
 

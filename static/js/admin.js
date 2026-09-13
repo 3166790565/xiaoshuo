@@ -219,6 +219,153 @@
     });
   }
 
+  /* ------------------------------------------------------------ TG 频道页 */
+
+  function setupTelegram() {
+    var note = document.getElementById("tg-account-note");
+    if (!note && !document.getElementById("tg-sync-all")) return;
+
+    function post(path, params) {
+      var payload = new FormData();
+      Object.keys(params).forEach(function (key) { payload.append(key, params[key]); });
+      return fetch(path, { method: "POST", body: payload, credentials: "same-origin" })
+        .then(function (response) {
+          return response.json().catch(function () {
+            throw new Error("请求失败（" + response.status + "），可能需要重新登录");
+          });
+        });
+    }
+
+    function login(path, params, button) {
+      if (button) button.disabled = true;
+      note.textContent = "请稍候…";
+      post(path, params)
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.message || "操作失败");
+          // 下一步（code/password/done）都交给服务端重渲染
+          window.location.reload();
+        })
+        .catch(function (error) {
+          note.textContent = error.message;
+          if (button) button.disabled = false;
+        });
+    }
+
+    function bind(id, path, param, key) {
+      var button = document.getElementById(id);
+      if (!button) return;
+      button.addEventListener("click", function () {
+        var value = (document.getElementById(key) || {}).value || "";
+        login(path, param(value), button);
+      });
+    }
+
+    bind("tg-send-btn", "/admin/telegram/api/login/send",
+      function (value) { return { phone: value }; }, "tg-phone");
+    bind("tg-verify-btn", "/admin/telegram/api/login/verify",
+      function (value) { return { code: value }; }, "tg-code");
+    bind("tg-password-btn", "/admin/telegram/api/login/password",
+      function (value) { return { password: value }; }, "tg-password");
+
+    var restart = document.getElementById("tg-restart");
+    if (restart) {
+      restart.addEventListener("click", function () {
+        window.location.href = "/admin/telegram?restart=1";
+      });
+    }
+
+    var logoutBtn = document.getElementById("tg-logout");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", function () {
+        logoutBtn.disabled = true;
+        note.textContent = "退出中…";
+        post("/admin/telegram/api/logout", {})
+          .then(function () { window.location.reload(); })
+          .catch(function (error) {
+            note.textContent = error.message;
+            logoutBtn.disabled = false;
+          });
+      });
+    }
+
+    var card = document.getElementById("progress-card");
+    var bar = document.getElementById("progress-bar");
+    var text = document.getElementById("progress-text");
+    var status = document.getElementById("progress-status");
+    var rows = document.getElementById("progress-rows");
+
+    function watchQueue(jobIds, buttons) {
+      card.classList.remove("is-hidden");
+      var index = 0;
+
+      function done() {
+        buttons.forEach(function (button) { button.disabled = false; });
+      }
+
+      function next() {
+        if (index >= jobIds.length) {
+          status.textContent = "全部完成";
+          done();
+          return;
+        }
+        status.textContent = "第 " + (index + 1) + "/" + jobIds.length + " 个任务";
+        pollJob(jobIds[index], function (job, error) {
+          if (error) { status.textContent = error.message; index = jobIds.length; done(); return; }
+          var percent = job.total ? Math.round((job.done / job.total) * 100) : 0;
+          bar.style.width = percent + "%";
+          text.textContent = job.done + " / " + job.total + " · 成功 " + job.ok + " · 失败 " + job.failed;
+          rows.innerHTML = job.log.map(function (row) {
+            return "<tr class=\"row-" + row.status + "\">" +
+              "<td>" + escapeText(row.file) + "</td>" +
+              "<td>" + (STATUS_LABEL[row.status] || row.status) + "</td>" +
+              "<td>" + escapeText(row.title || "") + "</td>" +
+              "<td>" + (row.mode ? (MODE_LABEL[row.mode] || row.mode) : "") + "</td>" +
+              "<td>" + (row.chapters || "") + "</td>" +
+              "<td>" + (row.words || "") + "</td>" +
+              "<td>" + escapeText(row.message || "") + "</td>" +
+              "</tr>";
+          }).join("");
+          if (job.status === "done" || job.status === "error") { index += 1; next(); }
+        });
+      }
+
+      next();
+    }
+
+    function startSync(channelId, buttons) {
+      buttons.forEach(function (button) { button.disabled = true; });
+      status && (status.textContent = "提交中…");
+      card && card.classList.remove("is-hidden");
+      post("/admin/telegram/api/sync", { channel_id: String(channelId) })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.message || "发起同步失败");
+          text && (text.textContent = "已入队，正在拉取频道文件…");
+          watchQueue(data.job_ids, buttons);
+        })
+        .catch(function (error) {
+          text && (text.textContent = "");
+          status && (status.textContent = "");
+          alert(error.message);
+          buttons.forEach(function (button) { button.disabled = false; });
+        });
+    }
+
+    var syncButtons = Array.prototype.slice.call(document.querySelectorAll(".tg-sync"));
+    syncButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        startSync(button.getAttribute("data-channel"), [button]);
+      });
+    });
+
+    var syncAll = document.getElementById("tg-sync-all");
+    if (syncAll) {
+      syncAll.addEventListener("click", function () {
+        startSync("all", syncButtons.concat([syncAll]));
+      });
+    }
+  }
+
   setupUpload();
   setupResplit();
+  setupTelegram();
 })();

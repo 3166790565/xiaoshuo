@@ -9,3 +9,7 @@ venv/
 *.db-shm
 .env
 CLAUDE.md
+
+# Telethon 本地调试时会生成的会话文件（本项目用 StringSession，正常不会出现）
+*.session
+*.session-journal

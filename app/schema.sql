@@ -68,3 +68,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- TG 频道爬取：关注的频道与增量同步游标。
+-- 会话字符串等零散状态放在 app_settings 里，不单开表。
+CREATE TABLE IF NOT EXISTS tg_channels (
+  id              INTEGER PRIMARY KEY,
+  title           TEXT DEFAULT '',       -- 解析成功后回填频道标题
+  username        TEXT NOT NULL,         -- 不带 @ 的用户名
+  chat_id         INTEGER,               -- 解析成功后回填，优先用它取实体，防频道改名
+  enabled         INTEGER DEFAULT 1,
+  last_message_id INTEGER DEFAULT 0,     -- 已处理到的最大消息 id，增量同步从这里续
+  last_sync_at    TEXT,
+  created_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_channels_username ON tg_channels(username);
